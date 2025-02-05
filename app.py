@@ -1,16 +1,22 @@
 import os
-import pickle
 import psutil
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request
 from sentiment_pipeline import SentimentPipeline
 
 app = Flask(__name__)
-
 MODELS_DIR = "./models"
 
-def load_models():
-    model_files = sorted([f for f in os.listdir(MODELS_DIR) if f.startswith("sentiment_batch_") and f.endswith(".pkl")])
-    model_files = model_files[:-1]
+def modelo_unificado():
+    model_path = os.path.join(MODELS_DIR, "sentiment_x.pkl")
+    if os.path.exists(model_path):
+        return SentimentPipeline.load(model_path)
+    return None
+
+def load_ensemble_models():
+    model_files = sorted([f for f in os.listdir(MODELS_DIR)
+                           if f.startswith("sentiment_batch_") and f.endswith(".pkl")])
+    if model_files:
+        model_files = model_files[:-1]
     models = []
     for file in model_files:
         filepath = os.path.join(MODELS_DIR, file)
@@ -29,7 +35,7 @@ def ensemble_predict(models, sample):
     return max(tally, key=tally.get)
 
 def medir_memoria():
-    import psutil
+    """Retorna o uso atual de memória (RSS) do processo em bytes."""
     process = psutil.Process()
     return process.memory_info().rss
 
@@ -40,9 +46,13 @@ def index():
     if request.method == "POST":
         input_text = request.form.get("text", "")
         if input_text:
-            models = load_models()
+            unified_model = modelo_unificado()
             mem_before = medir_memoria()
-            prediction = ensemble_predict(models, input_text)
+            if unified_model is not None:
+                prediction = unified_model.predict([input_text])[0]
+            else:
+                models = load_ensemble_models()
+                prediction = ensemble_predict(models, input_text)
             mem_after = medir_memoria()
             memory_used = mem_after - mem_before
     return render_template("index.html", prediction=prediction, memory_used=memory_used)
